@@ -32,6 +32,115 @@ const clean = (value = "") =>
     .replace(/\s+/g, " ")
     .trim();
 
+const sourceLabels: Record<string, string> = {
+  "GitHub Rising": "GitHub 新星项目",
+  "GitHub Blog": "GitHub 官方博客",
+  "Hacker News": "黑客新闻",
+  "Hugging Face": "Hugging Face 博客",
+  Cloudflare: "Cloudflare 博客",
+  "The Verge": "科技媒体",
+  "CoinGecko Trending": "CoinGecko 趋势榜",
+  CoinDesk: "加密媒体",
+};
+
+const zhTerms: Array<[RegExp, string]> = [
+  [/\bAI\b/gi, "AI"],
+  [/\bagent(s|ic)?\b/gi, "智能体"],
+  [/\bopen[- ]source\b/gi, "开源"],
+  [/\bdeveloper(s)?\b/gi, "开发者"],
+  [/\bsecurity\b/gi, "安全"],
+  [/\bprivacy\b/gi, "隐私"],
+  [/\bcrypto(currency)?\b/gi, "加密货币"],
+  [/\bbitcoin\b/gi, "比特币"],
+  [/\bethereum\b/gi, "以太坊"],
+  [/\bcloud\b/gi, "云服务"],
+  [/\bmodel(s)?\b/gi, "模型"],
+  [/\bapp(s)?\b/gi, "应用"],
+  [/\bstartup(s)?\b/gi, "创业公司"],
+  [/\blaunch(es|ed)?\b/gi, "发布"],
+  [/\bupdate(s|d)?\b/gi, "更新"],
+  [/\brelease(s|d)?\b/gi, "发布"],
+  [/\bbuild(ing)?\b/gi, "构建"],
+  [/\bdata\b/gi, "数据"],
+  [/\btool(s)?\b/gi, "工具"],
+  [/\bplatform(s)?\b/gi, "平台"],
+  [/\bgithub\b/gi, "GitHub"],
+  [/\bhacker news\b/gi, "黑客新闻"],
+];
+
+const hasAsciiWord = (value: string) => /[A-Za-z]{3,}/.test(value);
+
+const normalizeTopic = (value: string, category: RadarItem["category"]) => {
+  let text = clean(value)
+    .replace(/[|:：\-–—]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  for (const [pattern, replacement] of zhTerms) text = text.replace(pattern, replacement);
+
+  const words = text.match(/[\u4e00-\u9fa5A-Za-z0-9.+#-]{2,}/g) ?? [];
+  const useful = words
+    .filter((word) => !/^(the|and|for|with|from|into|your|this|that|how|why|what|new|latest|weekly)$/i.test(word))
+    .slice(0, 5);
+
+  if (useful.length && useful.some((word) => /[\u4e00-\u9fa5]/.test(word))) return useful.join("、");
+  if (useful.length) return useful.join("、");
+
+  const fallbackTopic: Record<RadarItem["category"], string> = {
+    开源: "开源工具",
+    AI: "AI 产品与模型",
+    科技: "科技趋势",
+    加密: "加密市场",
+  };
+  return fallbackTopic[category];
+};
+
+const chineseTitle = (item: Pick<RadarItem, "title" | "source" | "category" | "score">) => {
+  const topic = normalizeTopic(item.title, item.category);
+  if (item.source === "GitHub Rising") return `开源新星：${topic}`;
+  if (item.source === "Hacker News") return `黑客新闻热议：${topic}`;
+  if (item.source === "CoinGecko Trending") return `${topic} 热度上升`;
+  if (item.category === "加密") return `加密观察：${topic}`;
+  if (item.category === "AI") return `AI 动态：${topic}`;
+  if (item.category === "开源") return `开源动态：${topic}`;
+  return `科技动态：${topic}`;
+};
+
+const chineseSummary = (item: Pick<RadarItem, "title" | "summary" | "source" | "category" | "score" | "tags">) => {
+  const topic = normalizeTopic(`${item.title} ${item.summary}`, item.category);
+  const source = sourceLabels[item.source] ?? item.source;
+  const scoreHint = item.score >= 90 ? "热度很高，值得优先看" : item.score >= 78 ? "有讨论度，可以扫一眼" : "适合放进观察列表";
+  const tagHint = item.tags.filter((tag) => !hasAsciiWord(tag) || /^[★#\d,\s]+$/.test(tag)).slice(0, 2).join(" · ");
+  const suffix = tagHint ? `标签：${tagHint}。` : "";
+
+  if (item.source === "GitHub Rising") {
+    return `这是一个正在快速涨星的开源项目，核心看点是“${topic}”。${scoreHint}，适合挖成工具推荐、项目速览或开发者段子。${suffix}`;
+  }
+  if (item.source === "Hacker News") {
+    return `黑客新闻正在讨论“${topic}”。${scoreHint}，适合提炼成一句观点，再配一个反差式吐槽。${suffix}`;
+  }
+  if (item.source === "CoinGecko Trending") {
+    return `${topic} 出现在趋势榜上，说明市场注意力正在聚集。只做热点观察，不当投资建议；适合写成“今天链上群众又在看什么”。${suffix}`;
+  }
+  if (item.category === "加密") {
+    return `${source} 提到“${topic}”。重点不是追涨杀跌，而是观察资金、叙事和情绪往哪里跑。${suffix}`;
+  }
+  if (item.category === "AI") {
+    return `${source} 提到“${topic}”。可以关注它对模型、开发者工具或基础设施的影响，适合改写成轻松版 AI 动态。${suffix}`;
+  }
+  if (item.category === "开源") {
+    return `${source} 提到“${topic}”。它可能代表一个新的工具方向或开发者需求，适合做成开源雷达短评。${suffix}`;
+  }
+  return `${source} 提到“${topic}”。这条更像大众科技趋势信号，适合用轻松口吻讲给非技术读者。${suffix}`;
+};
+
+const localizeItem = (item: RadarItem): RadarItem => ({
+  ...item,
+  title: chineseTitle(item),
+  summary: chineseSummary(item),
+  source: sourceLabels[item.source] ?? item.source,
+  tags: item.tags.map((tag) => tag.replace("Open Source", "开源").replace("RSS", "订阅").replace("Trending", "趋势")),
+});
+
 const field = (block: string, tag: string) => {
   const match = block.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
   return clean(match?.[1] ?? "");
@@ -141,7 +250,8 @@ export async function GET() {
   const items = settled.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   const unique = Array.from(new Map(items.map((item) => [item.url || item.title, item])).values())
     .sort((a, b) => b.score - a.score)
-    .slice(0, 60);
+    .slice(0, 60)
+    .map(localizeItem);
   return NextResponse.json({
     items: unique.length ? unique : fallback,
     updatedAt: new Date().toISOString(),
